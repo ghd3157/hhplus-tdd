@@ -1,8 +1,13 @@
 package io.hhplus.tdd.point;
 
+import io.hhplus.tdd.database.PointHistoryTable;
+import io.hhplus.tdd.database.UserPointTable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 
@@ -12,6 +17,18 @@ public class PointController {
 
     private static final Logger log = LoggerFactory.getLogger(PointController.class);
 
+    @Autowired
+    private UserPointTable userPointTable;
+
+    @Autowired
+    private PointHistoryTable pointHistoryTable;
+
+    public PointController(UserPointTable userPointTable, PointHistoryTable pointHistoryTable) {
+        this.userPointTable = userPointTable;
+        this.pointHistoryTable = pointHistoryTable;
+    }
+
+
     /**
      * TODO - 특정 유저의 포인트를 조회하는 기능을 작성해주세요.
      */
@@ -19,7 +36,7 @@ public class PointController {
     public UserPoint point(
             @PathVariable long id
     ) {
-        return new UserPoint(0, 0, 0);
+        return userPointTable.selectById(id);
     }
 
     /**
@@ -29,7 +46,7 @@ public class PointController {
     public List<PointHistory> history(
             @PathVariable long id
     ) {
-        return List.of();
+        return pointHistoryTable.selectAllByUserId(id);
     }
 
     /**
@@ -40,7 +57,22 @@ public class PointController {
             @PathVariable long id,
             @RequestBody long amount
     ) {
-        return new UserPoint(0, 0, 0);
+        // amount 값 검증
+        if (amount <= 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "충전 금액은 0보다 커야 합니다.");
+        }
+        // 사용자의 현재 보유 포인트 확인
+        UserPoint current = userPointTable.selectById(id);
+        // 보유 포인트 + 충전 포인트
+        long updated = current.point() + amount;
+
+        // 사용자 보유 포인트 업데이트
+        UserPoint saved = userPointTable.insertOrUpdate(id, updated);
+        // 포인트 히스토리 업데이트
+        pointHistoryTable.insert(id, amount, TransactionType.CHARGE, System.currentTimeMillis());
+
+        return saved;
+
     }
 
     /**
@@ -51,6 +83,25 @@ public class PointController {
             @PathVariable long id,
             @RequestBody long amount
     ) {
-        return new UserPoint(0, 0, 0);
+        // amount 값 검증
+        if (amount <= 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "사용 금액은 0보다 커야 합니다.");
+        }
+        // 사용자의 현재 보유 포인트 확인
+        UserPoint current = userPointTable.selectById(id);
+        // 보유 포인트 보다 사용하려는 포인트가 크다면 오류 리턴
+        if (current.point() < amount) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "잔액이 부족합니다.");
+        }
+        // 보유 포인트 - 사용 포인트
+        long updated = current.point() - amount;
+
+        // 사용자 보유 포인트 업데이트
+        UserPoint saved = userPointTable.insertOrUpdate(id, updated);
+        // 포인트 히스토리 업데이트
+        pointHistoryTable.insert(id, amount, TransactionType.USE, System.currentTimeMillis());
+
+        return saved;
+
     }
 }
